@@ -1,5 +1,14 @@
 import pandas as pd
 import numpy as np
+from scipy.ndimage import median_filter
+
+def moving_median(df, window_size=3):
+    df_filtered = df.copy()
+    for col in df.columns:
+        if (col != "Eye movement type") and (col != "Recording timestamp"):
+            df_filtered[col] = median_filter(df[col], size=window_size, mode='nearest')
+    return df_filtered
+
 
 def compute_gaze_direction(left, right):
     if not np.isnan(left) and not np.isnan(right):  # If both available, compute average
@@ -37,14 +46,11 @@ def compute_velocity(df):
             sample_end = df.iloc[center_id + half_window]
             dt = (sample_end['Recording timestamp'] - sample_start['Recording timestamp']) / 1000  # Convert ms to sec
             direction_start = np.array(sample_start[['Gaze direction X', 'Gaze direction Y', 'Gaze direction Z']])
-            direction_center = np.array(df.iloc[center_id][['Gaze direction X', 'Gaze direction Y', 'Gaze direction Z']])
             direction_end = np.array(sample_end[['Gaze direction X', 'Gaze direction Y', 'Gaze direction Z']])
-            #vec_start = direction_center - direction_start
-            #vec_end = direction_end - direction_center
-            #dot = np.dot(vec_start, vec_end)
             dot = np.dot(direction_start, direction_end)
-            dot = np.clip(dot, -1.0, 1.0)
-            theta = np.arccos(dot)
+            norm_start = np.linalg.norm(direction_start)
+            norm_end   = np.linalg.norm(direction_end)
+            theta = np.arccos(dot/(norm_start*norm_end))
             theta_deg = np.degrees(theta)
             ang_vel = theta_deg / dt
             df.at[center_id, 'Velocity'] = ang_vel
@@ -83,12 +89,12 @@ def merge_adjacent_fixations(df):
 
                 # Compute the dot product
                 dot_product = np.dot(G1, G2)
-
+                G1_norm = np.linalg.norm(G1)
+                G2_norm = np.linalg.norm(G2)
                 # Clamp dot product to avoid numerical errors (ensuring it's between -1 and 1)
-                dot_product = np.clip(dot_product, -1.0, 1.0)
 
                 # Compute visual angle in degrees using arccos
-                visual_angle = np.degrees(np.arccos(dot_product))
+                visual_angle = np.degrees(np.arccos(dot_product/(G1_norm * G2_norm)))
 
                 # Merge fixations if time gap and visual angle conditions are met
                 if time_gap <= MAX_TIME_BETWEEN_FIXATIONS and visual_angle <= MAX_ANGLE_BETWEEN_FIXATIONS:
@@ -133,14 +139,17 @@ def discard_short_fixations(df):
 
 # Main function to process eye-tracking data
 if __name__ == "__main__":
-    file_path = "raw.xlsx" 
+    file_path = "csv results/custom_raw.xlsx" 
     df = pd.read_excel(file_path)
-    selected_columns = ["Recording timestamp", "Fixation point X", "Fixation point Y",
-                    "Gaze direction left X", "Gaze direction left Y", "Gaze direction left Z",
-                    "Gaze direction right X", "Gaze direction right Y", "Gaze direction right Z",
-                    "Eye movement type"]
+    IVT_df = pd.read_excel("csv results/custom_ivt.xlsx")
+    selected_columns = ["Recording timestamp",
+                        "Gaze direction left X", "Gaze direction left Y", "Gaze direction left Z",
+                        "Gaze direction right X", "Gaze direction right Y", "Gaze direction right Z",
+                        "Eye movement type"]
     df= df[~df['Event'].isin(['ImageStimulusStart', 'ImageStimulusEnd',"RecordingStart","RecordingEnd"])].reset_index(drop=True)
     df = df[selected_columns].copy()
+    #df = moving_median(df, window_size=3)
+    IVT_df = IVT_df[~IVT_df["Event"].isin(['ImageStimulusStart', 'ImageStimulusEnd',"RecordingStart","RecordingEnd"])].reset_index(drop=True)
     fix = list(df[df['Eye movement type'] == 'Fixation'].index)
 
     # Apply the function to create new columns
@@ -155,4 +164,5 @@ if __name__ == "__main__":
     MIN_FIXATION_DURATION = 60  # ms
     df = compute_velocity(df)
     df = classify_movements(df)
-    print(df.head(30))
+    print(df.loc[df["Classified Movement"] == "Saccade"])
+    print(IVT_df[IVT_df["Eye movement type"] == "Saccade"])

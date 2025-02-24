@@ -37,20 +37,26 @@ def compute_velocity(df):
             sample_start = df.iloc[center_id - half_window]
             sample_end = df.iloc[center_id + half_window]
             dt = (sample_end['Recording timestamp'] - sample_start['Recording timestamp']) / 1000  # Convert ms to sec
+            # angle between two vectors with origin at eye center
             gaze_start = np.array(sample_start[['Gaze point X', 'Gaze point Y']])
-            gaze_start = np.append(gaze_start,0)
-            eye_center = np.array(df.iloc[center_id][['Eye position X', 'Eye position Y', 'Eye position Z']])
+            proj_gaze_start = np.append(gaze_start,[0])
+            eye = np.array(df.iloc[center_id][['Eye position X', 'Eye position Y', 'Eye position Z']])
             gaze_end = np.array(sample_end[['Gaze point X', 'Gaze point Y']])
-            gaze_end = np.append(gaze_end,0)
-            vec_start = eye_center + gaze_start
-            vec_end = gaze_end + eye_center
-            norm_start = np.linalg.norm(vec_start)
-            norm_end   = np.linalg.norm(vec_end)
-            vec_start = vec_start / norm_start
-            vec_end = vec_end / norm_end
-            dot = np.dot(vec_start, vec_end)
-            dot = np.clip(dot, -1.0, 1.0)
-            theta = np.arccos(dot)
+            proj_gaze_end = np.append(gaze_end, 0)
+            V1 = proj_gaze_start - eye
+            V2 = proj_gaze_end - eye
+            norm_start = np.linalg.norm(V1)
+            norm_end   = np.linalg.norm(V2)
+            dot = np.dot(V1, V2)
+            theta = np.arccos(dot/(norm_start*norm_end))
+            '''
+            # angle of right triangle
+            gaze_start = np.array(sample_start[['Gaze point X', 'Gaze point Y']])
+            gaze_end = np.array(sample_end[['Gaze point X', 'Gaze point Y']])
+            gaze_dist = np.linalg.norm(gaze_end - gaze_start)
+            screen_dist = np.array(df.iloc[center_id]["Eye position Z"])
+            theta = np.arctan(gaze_dist/screen_dist)
+            '''
             theta_deg = np.degrees(theta)
             ang_vel = theta_deg / dt
             df.at[center_id, 'Velocity'] = ang_vel
@@ -139,9 +145,9 @@ def discard_short_fixations(df):
 
 # Main function to process eye-tracking data
 if __name__ == "__main__":
-    file_path = "raw.xlsx" 
+    file_path = "csv results/custom_raw.xlsx" 
     df = pd.read_excel(file_path)
-    IVT_df = pd.read_excel("IVT.xlsx")
+    IVT_df = pd.read_excel("csv results/custom_ivt.xlsx")
     selected_columns = ["Recording timestamp",
                     "Gaze point left X (DACSmm)", "Gaze point left Y (DACSmm)",
                     "Gaze point right X (DACSmm)", "Gaze point right Y (DACSmm)",
@@ -171,5 +177,15 @@ if __name__ == "__main__":
     df = compute_velocity(df)
     df = classify_movements(df)
     sac = np.sum(df['Classified Movement'] == 'Saccade')
-    #print(np.where(df[('Classified Movement'== "Saccade")]), np.where(IVT_df[("Eye movement type"]=="Saccade")))
-    print(np.where(df['Classified Movement'] == "Saccade"), np.where(IVT_df["Eye movement type"]=="Saccade"))
+    strt = np.array([0.018915,	0.209775,	-0.97667])
+    cur = np.array([0.06084,0.19328,-0.97926])
+    dot = np.dot(strt,cur)
+    th = np.arccos(dot/(np.linalg.norm(strt)*np.linalg.norm(cur)))
+    vel = np.degrees(th)/0.117
+    
+    #df.loc[df["Classified Movement"] == "Saccade"].to_csv('myfilter.csv', index=False, encoding='utf-8', sep=";")
+    #IVT_df.loc[IVT_df["Eye movement type"]=="Saccade"].to_csv('IVT.csv', index=False, encoding='utf-8', sep=";")
+    print(df.loc[df["Classified Movement"] == "Saccade"])
+    print(IVT_df.loc[IVT_df["Eye movement type"]=="Saccade"])
+    print(df.loc[17:19][["Gaze point X","Gaze point Y","Eye position X","Eye position Y","Eye position Z"]])
+    print(vel)
