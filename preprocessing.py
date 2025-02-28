@@ -42,7 +42,6 @@ def interpolate_nans(t, y, gap_dur=np.inf):
     d = np.diff(np.concatenate((np.array([0]), d*1, np.array([0]))))
     onsets = np.where(d==1)[0]
     offsets = np.where(d==-1)[0]
-    print(onsets,offsets)
     # Decrease offsets come too late by -1
     if np.any(offsets >= len(y)):
         idx = np.where(offsets >= len(y))[0][0]
@@ -91,7 +90,14 @@ def compute_gaze_direction(left, right):
         return right
     else:  # If neither is available, return NaN
         return np.nan
-    
+
+
+def combina_array_nan(array1, array2):
+    result = np.where(np.isnan(array1), array2,
+                      np.where(np.isnan(array2), array1,
+                      (array1 + array2) / 2))                                    
+    return result
+        
 '''
 file_path = "csv results/custom_raw.xlsx" 
 df = pd.read_excel(file_path)

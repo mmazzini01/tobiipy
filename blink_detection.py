@@ -8,7 +8,7 @@ from scipy.signal import savgol_filter, find_peaks
 class Settings():
     def __init__(self):
         self.Fs = 60  # Sample rate of eye tracker
-        self.gap_dur = 400  # Max gaps between period of data loss, interpolate smaller gaps
+        self.gap_dur = 40  # Max gaps between period of data loss, interpolate smaller gaps
         self.min_amplitude = 0.1  # % of fully open eye (0.1 - 10%)
         self.min_separation = 100  # Min separation between blinks
         self.debug = False
@@ -109,7 +109,7 @@ class BlinkDetector:
         return blinks
 
 
-    def blink_detector_eo(self, t, eye_openness_signal, Fs, gap_dur=30,
+    def blink_detector_eo(self, t, eye_openness_signal_left,eye_openness_signal_right, Fs, gap_dur=30,
                        filter_length=25,
                        width_of_blink=15,
                        min_separation=100,
@@ -134,26 +134,36 @@ class BlinkDetector:
         ms_to_sample = Fs / 1000
         sample_to_ms = 1000 / Fs
 
+        # Compute eye openness signal not filtered, just averaged
+        eye_openness_signal = preprocessing.combina_array_nan(eye_openness_signal_left, eye_openness_signal_right)
 
         # Assumes the eye is mostly open during the trial
         fully_open = np.nanmedian(eye_openness_signal, axis=0)
         min_amplitude = fully_open * self.settings.min_amplitude  # Equivalent to height in 'find_peaks'
 
+        
         # detection parameters in samples
         distance_between_blinks = 1
         width_of_blink = width_of_blink * ms_to_sample
         filter_length = preprocessing.nearest_odd_integer(filter_length * ms_to_sample)
-        filter_length = 3
+        if filter_length < 3:
+            filter_length = 3
 
         # Interpolate gaps
-        eye_openness_signal = preprocessing.interpolate_nans(t, eye_openness_signal,
+        eye_openness_signal_right = preprocessing.interpolate_nans(t, eye_openness_signal_right,
                                                               gap_dur=int(gap_dur))
-
-        # Filter eyelid signal and compute
-        eye_openness_signal_filtered = savgol_filter(eye_openness_signal, filter_length,2,
+        eye_openness_signal_left = preprocessing.interpolate_nans(t, eye_openness_signal_left,
+                                                                  gap_dur=int(gap_dur))
+         # Filter eyelid signal and compute
+        eye_openness_signal_left_filtered = savgol_filter(eye_openness_signal_left, filter_length,2,
                                        mode='nearest')
+        eye_openness_signal_right_filtered = savgol_filter(eye_openness_signal_right, filter_length,2,
+                                       mode='nearest')
+        
+        eye_openness_signal_filtered = preprocessing.combina_array_nan(eye_openness_signal_left_filtered, eye_openness_signal_right_filtered)
         eye_openness_signal_vel = savgol_filter(eye_openness_signal, filter_length, 2,
                                            deriv=1,  mode='nearest') * Fs
+        
 
         # Velocity threshold for on-, and offsets
         T_vel = stats.median_abs_deviation(eye_openness_signal_vel, nan_policy='omit') * 3
@@ -300,14 +310,15 @@ if __name__ == "__main__":
     df = df[selected_columns].copy()
 
     # compute average direction and openness of both eyes
-    df["Eye openness"] = df.apply(lambda row: preprocessing.compute_gaze_direction(row["Eye openness left"], row["Eye openness right"]), axis=1)
-    df.loc[df["Eye movement type"] == "EyesNotFound"] = np.nan
+    #df["Eye openness"] = df.apply(lambda row: preprocessing.compute_gaze_direction(row["Eye openness left"], row["Eye openness right"]), axis=1)
+    #df.loc[df["Eye movement type"] == "EyesNotFound"] = np.nan
     #df = df.iloc[5:].reset_index(drop=True)
-    eo_signal = df["Eye openness"].values
+    eo_signal_right = df["Eye openness right"].values
+    eo_signal_left = df["Eye openness left"].values
     time = df["Recording timestamp"].values
     settings = Settings()
     bd = BlinkDetector(settings)
-    df_out, eye_openness_signal_vel = bd.blink_detector_eo(time, eo_signal, settings.Fs, filter_length=settings.filter_length,
+    df_out, eye_openness_signal_vel = bd.blink_detector_eo(time, eo_signal_left,eo_signal_right , settings.Fs, filter_length=settings.filter_length,
                                                              gap_dur=settings.gap_dur,
                                                              width_of_blink=settings.width_of_blink,
                                                              min_separation=settings.min_separation)
