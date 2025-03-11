@@ -123,6 +123,10 @@ def filter_data(file_path):
                         "Eye openness left","Eye openness right","Eye movement type"]
     df_filtered = df[selected_columns].copy()
     '''
+    df_filtered["Recording timestamp"] = df_filtered["Recording timestamp"]/1000
+    df_filtered["Recording timestamp"] = df_filtered["Recording timestamp"].round(0).astype(int)
+
+    '''
     df_filtered["Recording timestamp"] = np.where(
         df_filtered["Recording timestamp"] % 10 == 9,  # Condition: Last 2 digits == 99
         df_filtered["Recording timestamp"] + 1,  # If true, add 1 to round up
@@ -132,7 +136,7 @@ def filter_data(file_path):
         df_filtered["Recording timestamp"] % 10 == 1,
         df_filtered["Recording timestamp"]  -1,
         df_filtered["Recording timestamp"] )
-
+    '''
     # Compute average gaze direction, eye position and gaze point
     df_filtered['Gaze direction left X'] =df_filtered["Gaze point left X"]-df_filtered['Eye position left X']
     df_filtered['Gaze direction left Y'] =df_filtered["Gaze point left Y"]-df_filtered['Eye position left Y']

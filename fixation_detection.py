@@ -1,11 +1,13 @@
 import pandas as pd
 import numpy as np
+import blink_detection
 
 class FixationDetector():
-    def __init__(self, settings,fix,nan_values):
+    def __init__(self, settings,fix,nan_values,blink_settings):
         self.settings = settings
         self.fix = fix
         self.nan_values = nan_values
+        self.blink_detection = blink_detection.BlinkDetector(blink_settings)
 
     def noise_reduction(self,df):
         # If noise_reduction is None or False, return df unchanged
@@ -55,17 +57,18 @@ class FixationDetector():
                 if index_prev not in self.nan_values:
                     sample_prev = df.iloc[index_prev]
                     sample_middle= df.iloc[index_fix]
-                    dt = (sample_middle['Recording timestamp'] - sample_prev['Recording timestamp']) / 1000  # Convert ms to sec
+                    dt = (sample_middle['Recording timestamp'] - sample_prev['Recording timestamp']) / 1000 # Convert ms to sec
+                    print(dt)
                     direction_start = np.array(sample_prev[['Gaze point X', "Gaze point Y",'Gaze point Z']].astype(float).round(2))
                     eye_middle = np.array(sample_middle[["Eye position X", "Eye position Y", "Eye position Z"]].astype(float).round(2))
                     direction_end = np.array(sample_middle[['Gaze direction X', 'Gaze direction Y', 'Gaze direction Z']].astype(float).round(2))
                     v1 = direction_start-eye_middle
 
-                    theta_deg = self.compute_angle(v1,direction_end)
-                    ang_vel = theta_deg / 0.017
+                    theta_deg = self.compute_angle(v1,direction_end,matrix=None)
+                    ang_vel = theta_deg / dt
                     df.at[index_fix, 'Velocity'] = ang_vel
         else:
-            for i in range(1,len(self.fix)-1):
+            for i in range(1,len(self.fix)):
                 index_fix = self.fix[i]
                 index_prev = index_fix -1
                 if index_prev not in self.nan_values:
@@ -85,7 +88,7 @@ class FixationDetector():
                     v1 = np.round(v1,2)
                     v2 = np.round(v2,2)
                     ang1 = self.compute_angle(v1,v2)
-                    ang_vel = ang1 / 0.016667
+                    ang_vel = ang1 / dt
                     df.at[index_fix, 'Velocity'] = ang_vel
         return df
     

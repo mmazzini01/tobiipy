@@ -27,22 +27,22 @@ class Fixation_Settings():
         self.velocity_window = True
         self.velocity_threshold = 30
         self.label_counter = {'id':0}
-        self.merge_fixations = True
+        self.merge_fixations = None
         self.merge_max_time = 75
         self.merge_max_angle = 0.5
-        self.discard_short_fixations = True
+        self.discard_short_fixations = None
         self.min_fixation_duration = 60
 if __name__ == '__main__':
-    #blink_settings = Blink_Settings()
+    blink_settings = Blink_Settings()
     fix_settings = Fixation_Settings()
-    file_path = 'csv results/output.csv'
-    gt_file_path = 'csv results/test13_median.xlsx'
+    file_path = 'csv results/output5.csv'
+    gt_file_path = 'csv results/test5.xlsx'
     dfgt = pd.read_excel(gt_file_path)
+    dfgt = dfgt[dfgt["Event"].isna()].reset_index(drop=True)
     df = preprocessing.filter_data(file_path)
-    df.at[217,"Eye movement type"] = 'Unclassified'
     fix = list(df[df['Eye movement type'] == 'Fixation'].index)
     nan_values = list(df[df["Eye movement type"] == "EyesNotFound"].index)
-    fd = fixation_detection.FixationDetector(fix_settings,fix,nan_values)
+    fd = fixation_detection.FixationDetector(fix_settings,fix,nan_values,blink_settings)
     #bd = blink_detection.BlinkDetector(blink_settings)
     #eo_signal_right = df["Eye openness right"].values
     #eo_signal_left = df["Eye openness left"].values
@@ -57,11 +57,28 @@ if __name__ == '__main__':
     df_out = fd.fixation_detector(df)
     my_ind = list(df_out[df_out['Classified Movement'] == 'Saccade'].index)
     gt_ind = list(dfgt[dfgt['Eye movement type'] == 'Saccade'].index)
-    FP = list(set(my_ind) - set(gt_ind))
-    FN = list(set(gt_ind) - set(my_ind))
-    print(df_out[(df_out["Velocity"] >= 29) & (df_out["Velocity"] <= 31)])
-    print(df_out.loc[:][["Recording timestamp","Eye movement type","Classified Movement","Group","Velocity","Eye movement duration"]])
-    print(fix_settings.label_counter)
 
-    print("False Postive:", FP)
-    print("False Negative:", FN)
+    print(df.shape)
+    #print(df_out.loc[[]][["Recording timestamp","Eye movement type","Classified Movement","Group","Velocity","Eye movement duration"]])
+
+    with open("comparison.txt", "w") as f:
+        FP = 0  # False Positives
+        FN = 0  # False Negatives
+        f.write("ID  MINE      GT       VEL   DUR    GROUP_ID")
+        f.write("\n")
+        for i in range(len(df_out)):
+            classified_movement = df_out.loc[i, "Classified Movement"]
+            eye_movement_type = dfgt.loc[i, "Eye movement type"]
+            velocity = df_out.loc[i,"Velocity"].round(1)
+            eye_mov_tipe_index = df_out.loc[i,"Label Group"]
+            duration = df_out.loc[i,"Eye movement duration"].round(0)
+            marker = "            <----------------------------" if classified_movement != eye_movement_type else ""
+            f.write(f"{i}  {classified_movement}  {eye_movement_type}  {velocity}  {duration}  {eye_mov_tipe_index}{marker}\n")
+            if classified_movement == "Fixation" and eye_movement_type == "Saccade":
+                FP += 1  #
+            if classified_movement == "Saccade" and eye_movement_type == "Fixation":
+                FN += 1  
+        
+        f.write("\n")  
+        f.write(f"False Positive: {FP}\n")
+        f.write(f"False Negative: {FN}\n")
