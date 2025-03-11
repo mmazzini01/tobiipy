@@ -6,196 +6,7 @@ import pandas as pd
 import scipy.signal as signal
 import numpy as np
 from scipy.signal import savgol_filter, find_peaks
-
-#################################################
-def nan_helper(y):
-    """Helper to handle indices and logical indices of NaNs.
-
-    Input:
-        - y, 1d numpy array with possible NaNs
-    Output:
-        - nans, logical indices of NaNs
-        - index, a function, with signature indices= index(logical_indices),
-          to convert logical indices of NaNs to 'equivalent' indices
-    Example:
-        >>> # linear interpolation of NaNs
-        >>> nans, x= nan_helper(y)
-        >>> y[nans]= np.interp(x(nans), x(~nans), y[~nans])
-    """
-
-    return np.isnan(y), lambda z: z.nonzero()[0]
-#%%
-def interpolate_nans(t, y, gap_dur=np.inf):
-    ''' Replaces nans with interpolated values if the 'island' or nans/or gap
-        is shorter than 'gap_dur'
-
-    Args:
-        y - 1d numpy array,
-        gap_dur - duration of gap in ms
-
-    Returns:
-        y - interpolated array
-    '''
-
-    # Find index for nans where gaps are longer than 'gap_dur' samples
-    d = np.isnan(y)
-
-    # If there are no nans, return
-    if not np.any(d):
-        return y
-
-    # Find onsets and offsets of gaps
-    d = np.diff(np.concatenate((np.array([0]), d*1, np.array([0]))))
-    onsets = np.where(d==1)[0]
-    offsets = np.where(d==-1)[0]
-
-    # Decrease offsets come too late by -1
-    if np.any(offsets >= len(y)):
-        idx = np.where(offsets >= len(y))[0][0]
-        offsets[idx] = offsets[idx] - 1
-
-    dur = t[offsets] - t[onsets]
-
-
-    # If the gaps are longer than 'gaps', replace temporarily with other values
-    for i, on in enumerate(onsets):
-        if dur[i] > gap_dur:
-            y[onsets[i]:offsets[i]] = -1000
-
-    nans, x = nan_helper(y)
-    y[nans]= np.interp(x(nans), x(~nans), y[~nans])
-
-    # put nans back
-    y[y == -1000] = np.nan
-
-    return y
-
-
-#%%
-def nearest_odd_integer(x):
-    """Returns nearest odd integer of input value.
-
-    Input:
-        - x, float or integer
-    Output:
-        - integer value that is odd
-    Example:
-        >>> nearest_odd_integer(6.25)
-            7
-        >>> nearest_odd_integer(5.99)
-            5
-    """
-
-    return int(2*np.floor(x/2)+1)
-#########################################
-
-
-def interpolate_data_loss(eo_signal, time):
-    """
-    Interpolate segments of data loss in the EO signal if the segment is shorter than max_gap_duration (in ms).
-    """
-    # Convert max_gap_duration from ms to samples
-    # Find where the signal is NaN (data loss)
-    nan_indices = np.where(np.isnan(eo_signal))[0]
-    # Group consecutive NaN indices
-    gaps = np.split(nan_indices, np.where(np.diff(nan_indices) != 1)[0] + 1)
-    # Interpolate gaps shorter than max_gap_samples
-    for gap in gaps:
-        start = max(0, gap[0] - 1)
-        end = min(len(eo_signal) - 1, gap[-1] + 1)
-        eo_signal = eo_signal.copy()
-        for id in gap:
-            print(id)
-            t1 = time.iloc[id]
-            t2 = time.iloc[start]
-            t3 = time.iloc[end]
-            scalin_fac = (t2-t3)/(t1-t3)
-            new = scalin_fac * eo_signal.iloc[end]
-            new += eo_signal.iloc[start]
-            eo_signal.iloc[id] = new
-    return eo_signal
-def interpolate_missing_data(EO_signal, time):
-    """Interpolate missing EO signal values for gaps smaller than max_gap ms."""
-    valid = ~np.isnan(EO_signal)
-    EO_signal_interp = np.interp(time, time[valid], EO_signal[valid])
-    return EO_signal_interp
-
-def smooth_signal(EO_signal, window_length=25, polyorder=2):
-    """Apply Savitzky–Golay filter to smooth the EO signal."""
-    return signal.savgol_filter(EO_signal, window_length, polyorder)
-
-
-def detect_blinks(eo_signal, fs=60, savgol_window=25, vel_threshold_factor=3, min_amplitude=50, min_duration=50):
-    """
-    Detect blinks in the EO signal using the described algorithm.
-    """
-    # Step 1: Interpolate data loss
-    eo_signal = interpolate_data_loss(eo_signal, fs=fs)
-    
-    # Step 2: Low-pass filter the EO signal with a Savitzky-Golay filter
-    savgol_window_samples = int(savgol_window * fs / 1000)
-    if savgol_window_samples >= len(eo_signal):
-        raise ValueError("Savitzky-Golay window size is larger than the signal length.")
-    eo_filtered = savgol_filter(eo_signal, savgol_window_samples, 2)
-    
-    # Step 3: Find peaks in the EO signal
-    peaks, _ = find_peaks(eo_filtered, height=min_amplitude)
-    
-    # If no peaks are found, return an empty list
-    if len(peaks) == 0:
-        return []
-    
-    # Step 4: Compute velocity of the unfiltered EO signal
-    velocity = savgol_filter(eo_signal, savgol_window_samples, 2, deriv=1)
-    
-    # Step 5: Define blink candidates using velocity threshold
-    mad_velocity = np.median(np.abs(velocity - np.median(velocity)))
-    vel_threshold = vel_threshold_factor * mad_velocity
-    
-    blink_candidates = []
-    for peak in peaks:
-        # Go backward in time to find onset
-        onset = peak
-        while onset > 0 and velocity[onset] > vel_threshold:
-            onset -= 1
-        
-        # Go forward in time to find offset
-        offset = peak
-        while offset < len(velocity) - 1 and velocity[offset] > vel_threshold:
-            offset += 1
-        
-        blink_candidates.append((onset, peak, offset))
-    
-    # Step 6: Compute peak opening and closing velocities
-    blink_stats = []
-    for onset, peak, offset in blink_candidates:
-        peak_opening_velocity = np.max(velocity[onset:peak])
-        peak_closing_velocity = np.max(velocity[peak:offset])
-        amplitude = eo_filtered[peak] - np.min(eo_filtered[onset:offset])
-        duration = (offset - onset) * 1000 / fs  # Convert to ms
-        
-        blink_stats.append({
-            'onset': onset,
-            'peak': peak,
-            'offset': offset,
-            'opening_velocity': peak_opening_velocity,
-            'closing_velocity': peak_closing_velocity,
-            'amplitude': amplitude,
-            'duration': duration
-        })
-    
-    # Step 7: Reject blink candidates based on thresholds
-    valid_blinks = []
-    for stat in blink_stats:
-        if (stat['opening_velocity'] > vel_threshold and
-            stat['closing_velocity'] > vel_threshold and
-            stat['amplitude'] >= min_amplitude and
-            stat['duration'] >= min_duration):
-            valid_blinks.append(stat)
-    
-    return valid_blinks
-    
-
+import preprocessing
 
 def moving_median(df):
     global fix
@@ -207,60 +18,165 @@ def moving_median(df):
         prev = id-1
         post = id+1
         window = df.loc[prev:post]
-        if not window.isna().values.any():
+        if not window[['Gaze direction X', 'Gaze direction Y', 'Gaze direction Z']].isna().values.any():
             for col in df.columns:
-                if (col != "Eye movement type") and (col != "Recording timestamp") and (col != "Eye openness"):
+                if (col != "Eye movement type") and (col != "Recording timestamp"):
                     median = np.median([df.iloc[prev][col],df.iloc[id][col],df.iloc[post][col]])
                     df_filtered.at[id,col] = median
     return df_filtered
-
-
-def compute_gaze_direction(left, right):
-    if not np.isnan(left) and not np.isnan(right):  # If both available, compute average
-        return (left + right) / 2
-    elif not np.isnan(left):  # If only left is available
-        return left
-    elif not np.isnan(right):  # If only right is available
-        return right
-    else:  # If neither is available, return NaN
-        return np.nan
+'''
+def moving_median(arr):
+    arr = np.asarray(arr)  # Assicura che l'input sia un array NumPy
+    result = np.full_like(arr, np.nan)  # Array di output inizializzato a NaN
     
-def compute_average_interval(samples, num_samples=100):
+    for i in range(len(arr)):
+        if i == 0 or i == len(fix)-1:
+            continue
+        prev = i-1
+        post = i+1
+        window = arr[prev:post]
+        if not np.isnan(window).any():
+             result[i] = np.median(window)
+        else:
+            result[i] = arr[i]
+    return result
+'''
+'''
+def compute_gaze_point_3d(eye_position, gaze_direction, distance_to_screen):
     """
-    Calcola l'intervallo medio (in secondi) tra i campioni 
-    usando i primi num_samples campioni (o meno se non disponibili).
-    """
-    n = num_samples
-    intervals = [samples.loc[i+1,"Recording timestamp"] - samples.loc[i,"Recording timestamp"] for i in range(n - 1)]
-    return np.mean(intervals)
+    Computes the 3D gaze point given the eye position, gaze direction, and distance to the screen.
 
+    Parameters:
+        eye_position: NumPy array of shape (3,) containing the (x, y, z) coordinates of the eye position
+        gaze_direction: NumPy array of shape (3,) containing the normalized (x, y, z) components of the gaze direction
+        distance_to_screen: Distance from the eye to the screen in the same units as eye_position
+
+    Returns:
+        NumPy array of shape (3,) containing the (x, y, z) coordinates of the gaze point on the screen
+    """
+    # Ensure gaze direction is normalized
+    gaze_direction = gaze_direction / np.linalg.norm(gaze_direction)
+    
+    # Compute the gaze point in 3D
+    gaze_point = eye_position + gaze_direction * distance_to_screen
+    
+    return gaze_point
+'''
+def velocity_px_to_deg(arr1, arr2, delta_t,screen_distance_cm):
+    """
+    Converts gaze velocity from pixels/sec to degrees/sec for arrays of gaze points.
+    
+    Parameters:
+        arr1: NumPy array of shape (N, 2) containing (x, y) coordinates at time t1 (in pixels)
+        arr2: NumPy array of shape (N, 2) containing (x, y) coordinates at time t2 (in pixels)
+        delta_t: Time difference between two samples (in seconds)
+        screen_width_px: Screen width in pixels
+        screen_width_cm: Screen width in centimeters
+        screen_distance_cm: Distance from eyes to screen in centimeters
+    
+    Returns:
+        NumPy array of velocities in degrees per second (°/s)
+    """
+    # Convert pixel distance to cm using screen width
+    
+    # Compute Euclidean distance in pixels
+    d_px = np.linalg.norm(arr2 - arr1)
+    
+    # Convert pixel distance to 
+    
+    # Compute visual angle in degrees
+    theta = 2 * np.arctan((d_px) / (2*screen_distance_cm))
+    ang = np.degrees(theta)
+    
+    # Compute velocity in °/s
+    velocity_deg_per_sec = ang / delta_t 
+    
+    return velocity_deg_per_sec
+'''
 def compute_velocity(df):
-    global fix, WINDOW_LENGTH
+    global fix, nan_values
     df['Velocity'] = np.nan  # Initialize velocity column
     # Iterate through fixation indexes
     for i in range(len(fix)):
         if i == 0 :
             continue  # Skip first and last fixations
-        else:
-            index_start = fix[i-1]
-            index_end = fix[i]
-            sample_start = df.iloc[index_start]
-            sample_end = df.iloc[index_end]
-            dt = (sample_end['Recording timestamp'] - sample_start['Recording timestamp']) / 1000  # Convert ms to sec
-            direction_start = np.array(sample_start[['Gaze direction X', 'Gaze direction Y', 'Gaze direction Z']])
-            direction_end = np.array(sample_end[['Gaze direction X', 'Gaze direction Y', 'Gaze direction Z']])
-            dot = np.dot(direction_start, direction_end)
-            norm_start = np.linalg.norm(direction_start)
-            norm_end   = np.linalg.norm(direction_end)
-            if norm_end == 0 or norm_start == 0:
-                continue
-            theta = np.arccos(np.clip(dot / (norm_start * norm_end),-1,1))
-            theta_deg = np.degrees(theta)
-            ang_vel = theta_deg / dt
-            df.at[index_end, 'Velocity'] = ang_vel
+        else:      
+            index_fix = fix[i]
+            index_prev = index_fix -1
+            if index_prev not in nan_values:
+                sample_prev = df.iloc[index_prev]
+                sample_curr = df.iloc[index_fix]
+                dt = (sample_curr['Recording timestamp'] - sample_prev['Recording timestamp']) / 1000  # Convert ms to sec
+                eye_pos_cur = np.array(sample_curr[["Eye position X", "Eye position Y", "Eye position Z"]])
+                eye_pos_prev = np.array(sample_prev[["Eye position X", "Eye position Y", "Eye position Z"]])
+                direction_prev = np.array(sample_prev[["Gaze direction X", "Gaze direction Y","Gaze direction Z"]])
+                direction_cur = np.array(sample_curr[["Gaze direction X", "Gaze direction Y","Gaze direction Z"]])
+                eye_dist = np.array(sample_prev["Eye position Z"])
+                gaze_point_prev = compute_gaze_point_3d(eye_pos_prev, direction_prev, eye_dist)
+                gaze_direction_new = gaze_point_prev - eye_pos_cur
+                 # Normalize the gaze direction vector
+                gaze_direction_normalized = gaze_direction_new / np.linalg.norm(gaze_direction_new)
+
+                dot = np.dot(direction_cur, gaze_direction_normalized)
+                norm_start = np.linalg.norm(direction_cur)
+                norm_end   = np.linalg.norm(gaze_direction_normalized)
+                theta = np.arccos(np.clip(dot / (norm_start * norm_end),-1,1))
+                theta_deg = np.degrees(theta)
+                ang_vel = theta_deg / dt
+
+                df.at[index_fix, 'Velocity'] = ang_vel
     return df
 
+'''
+def compute_velocity(df):
+    global fix, nan_values
+    df['Velocity'] = np.nan  # Initialize velocity column
+    # Iterate through fixation indexes
+    for i in range(len(fix)):
+        if i == 0 :
+            continue  # Skip first and last fixations
+        else:      
+            index_fix = fix[i]
+            index_prev = index_fix -1
+            if index_prev not in nan_values:
+                sample_start = df.iloc[index_prev]
+                sample_end = df.iloc[index_fix]
+                dt = (sample_end['Recording timestamp'] - sample_start['Recording timestamp']) / 1000  # Convert ms to sec
+                direction_start = np.array(sample_start[['Gaze direction X', 'Gaze direction Y', 'Gaze direction Z']].astype(float))
+                direction_end = np.array(sample_end[['Gaze direction X', 'Gaze direction Y', 'Gaze direction Z']].astype(float))
+                dot = np.dot(direction_start, direction_end)
+                norm_start = np.linalg.norm(direction_start)
+                norm_end   = np.linalg.norm(direction_end)
+                theta = np.arccos(np.clip(dot / (norm_start * norm_end),-1,1))
+                theta_deg = np.degrees(theta)
+                ang_vel = theta_deg / dt
+                df.at[index_fix, 'Velocity'] = ang_vel
+    return df
+
+def compute_velocity(df):
+    global fix, nan_values
+    df['Velocity'] = np.nan  # Initialize velocity column
+    # Iterate through fixation indexes
+    for i in range(len(fix)):
+        if i == 0 :
+            continue  # Skip first and last fixations
+        else:      
+            index_fix = fix[i]
+            index_prev = index_fix -1
+            if index_prev not in nan_values:
+                sample_start = df.iloc[index_prev]
+                sample_end = df.iloc[index_fix]
+                dt = (sample_end['Recording timestamp'] - sample_start['Recording timestamp']) / 1000  # Convert ms to sec
+                direction_start = np.array(sample_start[["Gaze point X","Gaze point Y"]].astype(float))
+                direction_end = np.array(sample_end[["Gaze point X","Gaze point Y"]].astype(float))
+                screen_distance = sample_end["Eye position Z"]
+                ang_vel = velocity_px_to_deg(direction_start, direction_end, dt, screen_distance )
+                df.at[index_fix, 'Velocity'] = ang_vel
+    return df
+  
+
 # Function to classify eye movements
+'''
 def classify_movements(df):
     df['Classified Movement'] = df['Eye movement type']  # Preserve existing labels
 
@@ -288,7 +204,12 @@ def classify_movements(df):
         df.at[idx, 'Classified Movement'] = curr_move
 
     return df
-
+'''
+def classify_movements(df):
+    df['Classified Movement'] = df['Eye movement type']  # Preserve existing labels
+    filtered_rows = ~pd.isna(df['Velocity']) & (df['Velocity'] >= VELOCITY_THRESHOLD)
+    df.loc[filtered_rows, 'Classified Movement'] = 'Saccade'
+    return df
 
 def merge_adjacent_fixations(df):
     fixation_groups = []
@@ -357,28 +278,31 @@ def discard_short_fixations(df):
 
 # Main function to process eye-tracking data
 if __name__ == "__main__":
-    file_path = "csv results/custom_raw.xlsx" 
+    file_path = "csv results/test2_raw.xlsx" 
     df = pd.read_excel(file_path)
-    IVT_df = pd.read_excel("csv results/noise_ivt.xlsx")
+    dfgt = pd.read_excel("csv results/test2_ivt_noblink.xlsx")
+    #IVT_df = pd.read_excel("csv results/noise_ivt.xlsx")
     selected_columns = ["Recording timestamp",
                         "Gaze direction left X", "Gaze direction left Y", "Gaze direction left Z",
                         "Gaze direction right X", "Gaze direction right Y", "Gaze direction right Z",
+                        "Eye position left X (DACSmm)", "Eye position right X (DACSmm)",
+                        "Eye position left Y (DACSmm)", "Eye position right Y (DACSmm)",
+                        "Eye position left Z (DACSmm)", "Eye position right Z (DACSmm)",
+                        "Gaze point left X (DACSmm)", "Gaze point right X (DACSmm)",
+                        "Gaze point left Y (DACSmm)", "Gaze point right Y (DACSmm)",
+                        "Gaze point left X", "Gaze point left Y",
+                        "Gaze point right X", "Gaze point right Y",
                         "Eye openness left","Eye openness right","Eye movement type"]
-    df= df[~df['Event'].isin(['ImageStimulusStart', 'ImageStimulusEnd',"RecordingStart","RecordingEnd"])].reset_index(drop=True)
+    #df= df[~df['Event'].isin(['ImageStimulusStart', 'ImageStimulusEnd',"RecordingStart","RecordingEnd"])].reset_index(drop=True)
     df = df[selected_columns].copy()
     #df = moving_median(df, window_size=3)
-    IVT_df = IVT_df[~IVT_df["Event"].isin(['ImageStimulusStart', 'ImageStimulusEnd',"RecordingStart","RecordingEnd"])].reset_index(drop=True)
-    fix = list(df[df['Eye movement type'] == 'Fixation'].index)
+    #IVT_df = IVT_df[~IVT_df["Event"].isin(['ImageStimulusStart', 'ImageStimulusEnd',"RecordingStart","RecordingEnd"])].reset_index(drop=True)
+    
 
     # compute average direction and openness of both eyes
-    df["Gaze direction X"] = df.apply(lambda row: compute_gaze_direction(row["Gaze direction left X"], row["Gaze direction right X"]), axis=1)
-    df["Gaze direction Y"] = df.apply(lambda row: compute_gaze_direction(row["Gaze direction left Y"], row["Gaze direction right Y"]), axis=1)
-    df["Gaze direction Z"] = df.apply(lambda row: compute_gaze_direction(row["Gaze direction left Z"], row["Gaze direction right Z"]), axis=1)
-    df["Eye openness"] = df.apply(lambda row: compute_gaze_direction(row["Eye openness left"], row["Eye openness right"]), axis=1)
-    df.loc[df["Eye movement type"] == "EyesNotFound", "Eye openness"] = np.nan
     df = df.iloc[5:].reset_index(drop=True)
-    eo_signal = df["Eye openness"]
-    #print(np.where(np.isnan(eo_signal)))
+    fix = list(df[df['Eye movement type'] == 'Fixation'].index)
+    nan_values = list(df.loc[df["Eye movement type"] == "EyesNotFound"].index)
     time = df["Recording timestamp"]
     # Parameters (Adjustable)
     WINDOW_LENGTH = 20  # in ms
@@ -386,14 +310,42 @@ if __name__ == "__main__":
     MAX_TIME_BETWEEN_FIXATIONS = 75  # ms
     MAX_ANGLE_BETWEEN_FIXATIONS = 0.5  # degrees
     MIN_FIXATION_DURATION = 60  # ms
-    df['value_interpolated'] = interpolate_nans(time.values, eo_signal.values)
-
+    '''
+    fil_left_x= moving_median(df["Gaze direction left X"])
+    fil_left_y= moving_median(df["Gaze direction left Y"])
+    fil_left_z= moving_median(df["Gaze direction left Z"])
+    fil_right_x= moving_median(df["Gaze direction right X"])        
+    fil_right_y= moving_median(df["Gaze direction right Y"])
+    fil_right_z= moving_median(df["Gaze direction right Z"])
+    df['Gaze direction left X'] = fil_left_x
+    df['Gaze direction left Y'] = fil_left_y
+    df['Gaze direction left Z'] = fil_left_z
+    df['Gaze direction right X'] = fil_right_x
+    df['Gaze direction right Y'] = fil_right_y
+    df['Gaze direction right Z'] = fil_right_z
+    '''
+    df["Gaze direction X"] = df.apply(lambda row: preprocessing.compute_average_value(row["Gaze direction left X"], row["Gaze direction right X"]), axis=1)
+    df["Gaze direction Y"] = df.apply(lambda row: preprocessing.compute_average_value(row["Gaze direction left Y"], row["Gaze direction right Y"]), axis=1)
+    df["Gaze direction Z"] = df.apply(lambda row: preprocessing.compute_average_value(row["Gaze direction left Z"], row["Gaze direction right Z"]), axis=1)
+    df["Eye position X"] = df.apply(lambda row: preprocessing.compute_average_value(row["Eye position left X (DACSmm)"], row["Eye position right X (DACSmm)"]), axis=1)
+    df["Eye position Y"] = df.apply(lambda row: preprocessing.compute_average_value(row["Eye position left Y (DACSmm)"], row["Eye position right Y (DACSmm)"]), axis=1)
+    df["Eye position Z"] = df.apply(lambda row: preprocessing.compute_average_value(row["Eye position left Z (DACSmm)"], row["Eye position right Z (DACSmm)"]), axis=1)
+    df["Gaze point X"] = df.apply(lambda row: preprocessing.compute_average_value(row["Gaze point left X (DACSmm)"], row["Gaze point right X (DACSmm)"]), axis=1)
+    df["Gaze point Y"] = df.apply(lambda row: preprocessing.compute_average_value(row["Gaze point left Y (DACSmm)"], row["Gaze point right Y (DACSmm)"]), axis=1)
     #df_new = moving_median(df)
-    #df_new = compute_velocity(df_new)
-    #df_new = classify_movements(df_new)
+    df = moving_median(df)
+    df_new = compute_velocity(df)
+    df_new = classify_movements(df_new)
     # Detect blinks
-    
-    print(df.iloc[:30]['value_interpolated'])
-    #print(df_new[df_new['Classified Movement'] == 'Saccade'])
+   # print(len(df_new))
+    dfgt = dfgt.iloc[5:].reset_index(drop=True)
+    gt_ind = list(dfgt[dfgt['Eye movement type'] == 'Saccade'].index)
+    my_ind = list(df_new[df_new['Classified Movement'] == 'Saccade'].index)
+    print(df_new.iloc[ [150,151,152]][['Gaze point X', 'Gaze point Y', 'Eye position Z',"Velocity"]])
+    FP = list(set(my_ind) - set(gt_ind))
+    FN = list(set(gt_ind) - set(my_ind))
+    print("False Postive:", FP)
+    print("False Negative:", FN)
+    print(len(my_ind))
     #print(IVT_df[IVT_df["Eye movement type"] == "Saccade"])
     #df_new.to_csv('output.csv', index=False)
