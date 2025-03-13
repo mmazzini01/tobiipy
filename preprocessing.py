@@ -107,6 +107,7 @@ def filter_data(file_path):
                         "Gaze point left X", "Gaze point right X",
                         "Gaze point left Y", "Gaze point right Y",
                         "Gaze point left Z", "Gaze point right Z",
+                        "Eye openness left", "Eye openness right",
                         "Eye movement type"]
     df_filtered = df[selected_columns].copy()
     '''
@@ -124,7 +125,7 @@ def filter_data(file_path):
     df_filtered = df[selected_columns].copy()
     '''
     df_filtered["Recording timestamp"] = df_filtered["Recording timestamp"]/1000
-    df_filtered["Recording timestamp"] = df_filtered["Recording timestamp"].round(0).astype(int)
+    df_filtered["Recording timestamp"] = df_filtered["Recording timestamp"].round(0)
 
     '''
     df_filtered["Recording timestamp"] = np.where(

@@ -23,8 +23,7 @@ class BlinkDetector:
 
         return onsets + 1, offsets
 
-    def _merge_blinks(self, blink_onsets, blink_offsets, min_dur, min_separation,
-                     additional_params=[]):
+    def _merge_blinks(self, blink_onsets, blink_offsets,min_dur,additional_params = []):
         """
 
         Merges blinks close together, and removes short blinks
@@ -52,7 +51,7 @@ class BlinkDetector:
                 temp_onset = blink_onsets[i]
 
             if i < len(blink_onsets) - 1:
-                if ((blink_onsets[i+1] - blink_offsets[i])) < min_separation:
+                if ((blink_onsets[i+1] - blink_offsets[i])) < self.settings.min_separation:
 
                     # if change_onset:
                     #     temp_onset = onsets[i]
@@ -95,11 +94,7 @@ class BlinkDetector:
         return blinks
 
 
-    def blink_detector_eo(self, t, eye_openness_signal_left,eye_openness_signal_right, Fs, gap_dur=30,
-                       filter_length=25,
-                       width_of_blink=15,
-                       min_separation=100,
-                       plot_on=True):
+    def blink_detector_eo(self, t, eye_openness_signal_left,eye_openness_signal_right):
         """
 
         Args:
@@ -116,178 +111,176 @@ class BlinkDetector:
             df - pandas dataframe with blink parameters
 
         """
-        if self.settings.blink_detection:
-            ms_to_sample = Fs / 1000
-            sample_to_ms = 1000 / Fs
+        ms_to_sample = self.settings.Fs / 1000
+        sample_to_ms = 1000 / self.settings.Fs
 
-            # Compute eye openness signal not filtered, just averaged
-            eye_openness_signal = preprocessing.compute_average_array(eye_openness_signal_left, eye_openness_signal_right)
-
-            # Assumes the eye is mostly open during the trial
-            fully_open = np.nanmedian(eye_openness_signal, axis=0)
-            min_amplitude = fully_open * self.settings.min_amplitude  # Equivalent to height in 'find_peaks'
-
-            
-            # detection parameters in samples
-            distance_between_blinks = 1
-            width_of_blink = width_of_blink * ms_to_sample
-            filter_length = preprocessing.nearest_odd_integer(filter_length * ms_to_sample)
-            if filter_length < 3:
-                filter_length = 3
-
-            # Interpolate gaps
-            eye_openness_signal_right = preprocessing.interpolate_nans(t, eye_openness_signal_right,
-                                                                gap_dur=int(gap_dur))
-            eye_openness_signal_left = preprocessing.interpolate_nans(t, eye_openness_signal_left,
-                                                                    gap_dur=int(gap_dur))
-            # Filter eyelid signal and compute
-            eye_openness_signal_left_filtered = savgol_filter(eye_openness_signal_left, filter_length,2,
-                                        mode='nearest')
-            eye_openness_signal_right_filtered = savgol_filter(eye_openness_signal_right, filter_length,2,
-                                        mode='nearest')
-            
-            eye_openness_signal_filtered = preprocessing.compute_average_array(eye_openness_signal_left_filtered, eye_openness_signal_right_filtered)
-            eye_openness_signal_vel = savgol_filter(eye_openness_signal, filter_length, 2,
-                                            deriv=1,  mode='nearest') * Fs
-            
-
-            # Velocity threshold for on-, and offsets
-            T_vel = stats.median_abs_deviation(eye_openness_signal_vel, nan_policy='omit') * 3
-
-            # Turn blink signal into something that looks more like a saccade signal
-            eye_openness_signal_inverse = (eye_openness_signal_filtered -
-                                        np.nanmax(eye_openness_signal_filtered)) * -1
-            peaks, properties = find_peaks(eye_openness_signal_inverse, height=None,
-                                        distance=distance_between_blinks,
-                                        width=width_of_blink)
-
-            # Filter out not so 'prominent peaks'
-            '''
-            The prominence of a peak may be defined as the least drop in height
-            necessary in order to get from the summit [peak] to any higher terrain.
-            '''
-            idx = properties['prominences'] > min_amplitude
-            peaks = peaks[idx]
-            for key in properties.keys():
-                properties[key] = properties[key][idx]
-
-            # Find peak opening/closing velocity by searching for max values
-            # within a window from the peak
-            blink_properties = []
-            for i, peak_idx in enumerate(peaks):
-
-                # Width of peak
-                width = properties['widths'][i]
-
-                ### Compute opening/closing velocity
-                # First eye opening velocity (when eyelid opens after a blink)
-                peak_right_idx = np.nanargmax(eye_openness_signal_vel[peak_idx:int(peak_idx + width)])
-                peak_right_idx = np.nanmin([peak_right_idx, len(eye_openness_signal_vel)])
-                idx_max_opening_vel = int(peak_idx + peak_right_idx)
-                time_max_opening_vel = t[idx_max_opening_vel]
-                opening_velocity = np.nanmax(eye_openness_signal_vel[peak_idx:int(peak_idx + width)])
-
-                # Then eye closing velocity (when eyelid closes in the beginning of a blink)
-                peak_left_idx = width - np.nanargmin(eye_openness_signal_vel[np.max([0, int(peak_idx - width)]):peak_idx]) + 1
-                peak_left_idx = np.nanmax([peak_left_idx, 0])
-                idx_max_closing_vel = int(peak_idx - peak_left_idx + 1)
-                time_max_closing_vel = t[idx_max_closing_vel]
-                closing_velocity = np.nanmin(eye_openness_signal_vel[np.max([0, int(peak_idx - width)]):peak_idx])
-
-                # Identify on and offsets (go from peak velocity backward/forward)
-                temp = eye_openness_signal_vel[idx_max_opening_vel:]
-                if np.any(temp <= (T_vel / 3)):
-                    offset = np.where(temp <= (T_vel / 3))[0][0]
-                else:
-                    offset = len(temp)
-
-                # make sure the blink period stop when encountering nan-data
-                # If it does, make the opening phase parameters invalid
-                if np.any(np.isnan(temp)):
-                    offset_nan = np.where(np.isnan(temp))[0][0]
-                    offset = np.min([offset, offset_nan])
-
-                offset_idx = int(idx_max_opening_vel + offset - 1)
-
-                temp = np.flip(eye_openness_signal_vel[:idx_max_closing_vel])
-                if np.any(temp >= -T_vel):
-                    onset = np.where(temp >= -T_vel)[0][0]
-                else:
-                    onset = 0
-
-                if np.any(np.isnan(temp)):
-                    onset_nan = np.where(np.isnan(temp))[0][0]
-                    onset = np.min([onset, onset_nan])
-
-                onset_idx = int(idx_max_closing_vel - onset)
+        # Compute eye openness signal for min amplitude not filtered, just averaged
+        fully_open = np.nanmedian(preprocessing.compute_average_array(eye_openness_signal_right,eye_openness_signal_left),axis = 0)
+        min_amplitude = fully_open * self.settings.min_amplitude  # Equivalent to height in 'find_peaks'
 
 
-                # Compute openness at onset, peak, and offset
-                openness_at_onset = eye_openness_signal_filtered[onset_idx]
-                openness_at_offset = eye_openness_signal_filtered[offset_idx]
-                openness_at_peak = eye_openness_signal_filtered[peak_idx]
+        
+        # detection parameters in samples
+        distance_between_blinks = 1
+        width_of_blink =self.settings.width_of_blink * ms_to_sample
+        filter_length = preprocessing.nearest_odd_integer(self.settings.filter_length * ms_to_sample)
+        if filter_length < 3:
+            filter_length = 3
 
-                # Compute amplitudes for closing and opening phases
-                closing_amplitude = np.abs(openness_at_onset - openness_at_peak)
-                opening_amplitude = np.abs(openness_at_offset - openness_at_peak)
+        # Interpolate gaps
+        eye_openness_signal_right = preprocessing.interpolate_nans(t, eye_openness_signal_right,
+                                                            gap_dur=int(self.settings.gap_dur))
+        eye_openness_signal_left = preprocessing.interpolate_nans(t, eye_openness_signal_left,
+                                                            gap_dur=int(self.settings.gap_dur))
+        # Filter eyelid signal and compute average
+        eye_openness_signal_left_filtered = savgol_filter(eye_openness_signal_left, filter_length,2,
+                                    mode='nearest')
+        eye_openness_signal_right_filtered = savgol_filter(eye_openness_signal_right, filter_length,2,
+                                    mode='nearest')
+        
+        eye_openness_signal_filtered = preprocessing.compute_average_array(eye_openness_signal_left_filtered, eye_openness_signal_right_filtered)
 
-                distance_onset_peak_vel = np.abs(eye_openness_signal_filtered[onset_idx] -
-                                                eye_openness_signal_filtered[idx_max_closing_vel]) # mm
-                timediff_onset_peak_vel = np.abs(onset_idx - idx_max_closing_vel) * sample_to_ms # ms
+        # compute velocity unfiltered data but interpolated nans then average
+        eye_openness_signal_vel_left = savgol_filter(eye_openness_signal_left, filter_length, 2,
+                                            deriv=1,  mode='nearest') * self.settings.Fs
+        eye_openness_signal_vel_right = savgol_filter(eye_openness_signal_right, filter_length, 2,
+                                            deriv=1,  mode='nearest') * self.settings.Fs
+        eye_openness_signal_vel = preprocessing.compute_average_array(eye_openness_signal_vel_left,eye_openness_signal_vel_right)
+        # Velocity threshold for on-, and offsets
+        T_vel = stats.median_abs_deviation(eye_openness_signal_vel, nan_policy='omit') * 3
 
-                # Onset and peak cannot be too close in space and time
-                if (distance_onset_peak_vel < 0.1) or (timediff_onset_peak_vel < 10):
-                    if self.settings.debug:
-                        print('Peak to close to onset')
-                    continue
+        # Turn blink signal into something that looks more like a saccade signal
+        eye_openness_signal_inverse = (eye_openness_signal_filtered -
+                                    np.nanmax(eye_openness_signal_filtered)) * -1
+        peaks, properties = find_peaks(eye_openness_signal_inverse, height=None,
+                                    distance=distance_between_blinks,
+                                    width=width_of_blink)
 
-                if np.min([opening_velocity, np.abs(closing_velocity)]) < (T_vel * 2):
-                    if self.settings.debug:
-                        print('Blink velocity too low')
-                    continue
+        # Filter out not so 'prominent peaks'
+        '''
+        The prominence of a peak may be defined as the least drop in height
+        necessary in order to get from the summit [peak] to any higher terrain.
+        '''
+        idx = properties['prominences'] > min_amplitude
+        peaks = peaks[idx]
+        print(peaks)
+        for key in properties.keys():
+            properties[key] = properties[key][idx]
 
-                blink_properties.append([t[onset_idx],
-                                        t[offset_idx],
-                                        t[offset_idx] - t[onset_idx],
-                                        t[peak_idx],
-                                        openness_at_onset, openness_at_offset,
-                                        openness_at_peak,
-                                        time_max_opening_vel,
-                                        time_max_closing_vel,
-                                        opening_velocity, closing_velocity,
-                                        opening_amplitude, closing_amplitude])
+        # Find peak opening/closing velocity by searching for max values
+        # within a window from the peak
+        blink_properties = []
+        for i, peak_idx in enumerate(peaks):
 
-            # Are there any blinks found?
-            if len(blink_properties) == 0:
-                bp = []
+            # Width of peak
+            width = properties['widths'][i]
+
+            ### Compute opening/closing velocity
+            # First eye opening velocity (when eyelid opens after a blink)
+            peak_right_idx = np.nanargmax(eye_openness_signal_vel[peak_idx:int(peak_idx + width)])
+            peak_right_idx = np.nanmin([peak_right_idx, len(eye_openness_signal_vel)])
+            idx_max_opening_vel = int(peak_idx + peak_right_idx)
+            time_max_opening_vel = t[idx_max_opening_vel]
+            opening_velocity = np.nanmax(eye_openness_signal_vel[peak_idx:int(peak_idx + width)])
+
+            # Then eye closing velocity (when eyelid closes in the beginning of a blink)
+            peak_left_idx = width - np.nanargmin(eye_openness_signal_vel[np.max([0, int(peak_idx - width)]):peak_idx]) + 1
+            peak_left_idx = np.nanmax([peak_left_idx, 0])
+            idx_max_closing_vel = int(peak_idx - peak_left_idx + 1)
+            time_max_closing_vel = t[idx_max_closing_vel]
+            closing_velocity = np.nanmin(eye_openness_signal_vel[np.max([0, int(peak_idx - width)]):peak_idx])
+            # Identify on and offsets (go from peak velocity backward/forward)
+            temp = eye_openness_signal_vel[idx_max_opening_vel:]
+            if np.any(temp <= (T_vel / 3)):
+                offset = np.where(temp <= (T_vel / 3))[0][0]
             else:
+                offset = len(temp)
 
-                # Merge blinks too close together in time
-                blink_temp = np.array(blink_properties)
-                blink_onsets = blink_temp[:, 0]
-                blink_offsets = blink_temp[:, 1]
+            # make sure the blink period stop when encountering nan-data
+            # If it does, make the opening phase parameters invalid
+            if np.any(np.isnan(temp)):
+                offset_nan = np.where(np.isnan(temp))[0][0]
+                offset = np.min([offset, offset_nan])
 
-                bp =  self._merge_blinks(blink_onsets, blink_offsets, width_of_blink, min_separation,
-                                additional_params=blink_temp[:, 3:])
+            offset_idx = int(idx_max_opening_vel + offset - 1)
 
-            # Convert to dataframe
-            df = pd.DataFrame(bp,
-                            columns=['onset', 'offset', 'duration',
-                                    'time_peak',
-                                    'openness_at_onset',
-                                    'openness_at_offset',
-                                    'openness_at_peak',
-                                    'time_peak_opening_velocity',
-                                    'time_peak_closing_velocity',
-                                    'peak_opening_velocity',
-                                    'peak_closing_velocity',
-                                    'opening_amplitude',
-                                    'closing_amplitude'])
+            temp = np.flip(eye_openness_signal_vel[:idx_max_closing_vel])
+            if np.any(temp >= -T_vel):
+                onset = np.where(temp >= -T_vel)[0][0]
+            else:
+                onset = 0
 
-            df.iloc[df.openness_at_peak < 0] = 0
-            return df, eye_openness_signal_vel
+            if np.any(np.isnan(temp)):
+                onset_nan = np.where(np.isnan(temp))[0][0]
+                onset = np.min([onset, onset_nan])
+
+            onset_idx = int(idx_max_closing_vel - onset)
+
+
+            # Compute openness at onset, peak, and offset
+            openness_at_onset = eye_openness_signal_filtered[onset_idx]
+            openness_at_offset = eye_openness_signal_filtered[offset_idx]
+            openness_at_peak = eye_openness_signal_filtered[peak_idx]
+
+            # Compute amplitudes for closing and opening phases
+            closing_amplitude = np.abs(openness_at_onset - openness_at_peak)
+            opening_amplitude = np.abs(openness_at_offset - openness_at_peak)
+
+            distance_onset_peak_vel = np.abs(eye_openness_signal_filtered[onset_idx] -
+                                            eye_openness_signal_filtered[idx_max_closing_vel]) # mm
+            timediff_onset_peak_vel = np.abs(onset_idx - idx_max_closing_vel) * sample_to_ms # ms
+
+            # Onset and peak cannot be too close in space and time
+            if (distance_onset_peak_vel < 0.1) or (timediff_onset_peak_vel < 10):
+                if self.settings.debug:
+                    print('Peak to close to onset')
+                continue
+
+            if np.min([opening_velocity, np.abs(closing_velocity)]) < (T_vel * 2):
+                if self.settings.debug:
+                    print('Blink velocity too low')
+                continue
+
+            blink_properties.append([t[onset_idx],
+                                    t[offset_idx],
+                                    t[offset_idx] - t[onset_idx],
+                                    t[peak_idx],
+                                    openness_at_onset, openness_at_offset,
+                                    openness_at_peak,
+                                    time_max_opening_vel,
+                                    time_max_closing_vel,
+                                    opening_velocity, closing_velocity,
+                                    opening_amplitude, closing_amplitude])
+
+        # Are there any blinks found?
+        if len(blink_properties) == 0:
+            bp = []
         else:
-            return None, None
+
+            # Merge blinks too close together in time
+            blink_temp = np.array(blink_properties)
+            blink_onsets = blink_temp[:, 0]
+            blink_offsets = blink_temp[:, 1]
+
+            bp =  self._merge_blinks(blink_onsets, blink_offsets, width_of_blink,
+                            blink_temp[:, 3:])
+
+        # Convert to dataframe
+        blink_df = pd.DataFrame(bp,
+                        columns=['onset', 'offset', 'duration',
+                                'time_peak',
+                                'openness_at_onset',
+                                'openness_at_offset',
+                                'openness_at_peak',
+                                'time_peak_opening_velocity',
+                                'time_peak_closing_velocity',
+                                'peak_opening_velocity',
+                                'peak_closing_velocity',
+                                'opening_amplitude',
+                                'closing_amplitude'])
+
+        blink_df.iloc[blink_df.openness_at_peak < 0] = 0
+        return blink_df
 '''
 if __name__ == "__main__":
     file_path = "csv results/test2_raw_svg.xlsx" 

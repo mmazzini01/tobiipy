@@ -24,9 +24,9 @@ class Fixation_Settings():
         self.eye_selection = 'average'
         self.noise_reduction = 'median'
         self.noise_reduction_window = 3
-        self.velocity_window = True
+        self.velocity_window = None
         self.velocity_threshold = 30
-        self.label_counter = {'id':0}
+        self.label_counter = {'id':0} # DO NOT CHANGE USED FOR GROUP INDEX 
         self.merge_fixations = None
         self.merge_max_time = 75
         self.merge_max_angle = 0.5
@@ -35,10 +35,10 @@ class Fixation_Settings():
 if __name__ == '__main__':
     blink_settings = Blink_Settings()
     fix_settings = Fixation_Settings()
-    file_path = 'csv results/output5.csv'
-    gt_file_path = 'csv results/test5.xlsx'
+    file_path = 'csv results/output8.csv'
+    gt_file_path = 'csv results/median_blink/test8.xlsx'
     dfgt = pd.read_excel(gt_file_path)
-    dfgt = dfgt[dfgt["Event"].isna()].reset_index(drop=True)
+    #dfgt = dfgt[dfgt["Event"].isna()].reset_index(drop=True)
     df = preprocessing.filter_data(file_path)
     fix = list(df[df['Eye movement type'] == 'Fixation'].index)
     nan_values = list(df[df["Eye movement type"] == "EyesNotFound"].index)
@@ -75,9 +75,9 @@ if __name__ == '__main__':
             marker = "            <----------------------------" if classified_movement != eye_movement_type else ""
             f.write(f"{i}  {classified_movement}  {eye_movement_type}  {velocity}  {duration}  {eye_mov_tipe_index}{marker}\n")
             if classified_movement == "Fixation" and eye_movement_type == "Saccade":
-                FP += 1  #
+                FN += 1  #
             if classified_movement == "Saccade" and eye_movement_type == "Fixation":
-                FN += 1  
+                FP += 1  
         
         f.write("\n")  
         f.write(f"False Positive: {FP}\n")

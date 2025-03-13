@@ -24,7 +24,7 @@ class FixationDetector():
             window = df.loc[prev:post]
             if not window[['Gaze point X', 'Gaze point Y', 'Gaze point Z']].isna().values.any():
                 for col in df.columns:
-                    if col not in ["Eye movement type", "Recording timestamp"]:
+                    if col not in ["Eye movement type", "Recording timestamp","Eye openness left","Eye openness right"]:
                         if self.settings.noise_reduction == 'median':
                             value = np.median([df.at[prev, col], df.at[id, col], df.at[post, col]])
                         elif self.settings.noise_reduction == 'average':
@@ -58,14 +58,13 @@ class FixationDetector():
                     sample_prev = df.iloc[index_prev]
                     sample_middle= df.iloc[index_fix]
                     dt = (sample_middle['Recording timestamp'] - sample_prev['Recording timestamp']) / 1000 # Convert ms to sec
-                    print(dt)
                     direction_start = np.array(sample_prev[['Gaze point X', "Gaze point Y",'Gaze point Z']].astype(float).round(2))
                     eye_middle = np.array(sample_middle[["Eye position X", "Eye position Y", "Eye position Z"]].astype(float).round(2))
                     direction_end = np.array(sample_middle[['Gaze direction X', 'Gaze direction Y', 'Gaze direction Z']].astype(float).round(2))
                     v1 = direction_start-eye_middle
 
                     theta_deg = self.compute_angle(v1,direction_end,matrix=None)
-                    ang_vel = theta_deg / dt
+                    ang_vel = theta_deg / 0.017
                     df.at[index_fix, 'Velocity'] = ang_vel
         else:
             for i in range(1,len(self.fix)):
@@ -88,7 +87,7 @@ class FixationDetector():
                     v1 = np.round(v1,2)
                     v2 = np.round(v2,2)
                     ang1 = self.compute_angle(v1,v2)
-                    ang_vel = ang1 / dt
+                    ang_vel = ang1 / 0.017
                     df.at[index_fix, 'Velocity'] = ang_vel
         return df
     
@@ -97,7 +96,9 @@ class FixationDetector():
         filtered_rows = ~pd.isna(df['Velocity']) & (df['Velocity'] >= self.settings.velocity_threshold)
         df.loc[filtered_rows, 'Classified Movement'] = 'Saccade'
         # if sample is after a nan, take the label of the next sample
-        df['Classified Movement'] = df['Classified Movement'].where(~(pd.isna(df['Velocity']) & (df['Classified Movement'] == 'Fixation')), df['Classified Movement'].shift(-1))
+        df['Classified Movement'] = df['Classified Movement'].where(~(pd.isna(df['Velocity']) & (df['Classified Movement'] == 'Fixation')
+                                                                      ), df['Classified Movement'].shift(-1))
+        df.at[0,"Classified Movement"] = "Fixation"
         return df
 
 
@@ -204,12 +205,35 @@ class FixationDetector():
             return df
         else:
             return df
+        
+    def blink_call(self,df):
+        blink_class = self.blink_detection
+        if blink_class.settings.blink_detection:
+            t =((df["Recording timestamp"].values - df["Recording timestamp"][0])).round(0)
+            eye_op_left = df["Eye openness left"].values
+            eye_op_right = df["Eye openness right"].values
+            blink_df = blink_class.blink_detector_eo(t,eye_op_left,eye_op_right)
+            print(blink_df)
+            gap = t-t[0]
+            blink_starts = blink_df['onset'].values[:, None]  
+            blink_ends = blink_df['offset'].values[:, None]   
+            # For each timestamp, check if it's in any blink interval
+            mask = ((gap >= blink_starts) & (gap < blink_ends)).any(axis=0)
+
+            df.loc[mask, 'Classified Movement'] = 'Blink'
+            df["Gap"] = gap
+            
+            return df
+            
+        else:
+            return df
 
     
     def fixation_detector(self,df):
         df = self.noise_reduction(df)
         df = self.compute_velocity(df)
         df = self.classify_movement(df)
+        df = self.blink_call(df)
         df = self.merge_adjacent_fixations(df)
         df = self.compute_eye_movement_duration(df)
         df = self.discard_short_fixation(df)
