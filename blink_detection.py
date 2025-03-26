@@ -96,17 +96,12 @@ class BlinkDetector:
 
     def blink_detector_eo(self, t, eye_openness_signal_left,eye_openness_signal_right):
         """
-
+        Detect blinks in eye openness signal
+        
         Args:
             t - time in ms
-            eye_openness_signal (1d numpy array): eye openness signal for left or right eye
-            Fs (int): sampling frequency of the eo data
-            gap_dur (int): interpolate gaps shorter than this duration (ms)
-            filter_length (int): length of SG filter (ms)
-            width_of_blink (int): min width of blink (ms)
-            min_separation (int): min separation between blink peaks (ms)
-            plot_on (boolean): plot the results?
-
+            eye_openness_signal_left (1d numpy array): eye openness signal for left eye
+            eye_openness_signal_right (1d numpy array): eye openness signal for right eye
         Returns:
             df - pandas dataframe with blink parameters
 
@@ -163,7 +158,6 @@ class BlinkDetector:
         '''
         idx = properties['prominences'] > min_amplitude
         peaks = peaks[idx]
-        print(peaks)
         for key in properties.keys():
             properties[key] = properties[key][idx]
 
