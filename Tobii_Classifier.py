@@ -2,7 +2,6 @@ import os
 import preprocessing
 from settings import Fixation_Settings, Blink_Settings
 from fixation_detection import FixationDetector
-import sys
 
 
 class Tobii_Classifier:
@@ -11,11 +10,11 @@ class Tobii_Classifier:
     --------
 
     This class takes as input the path to a raw gaze data file and automatically processes it to classify
-    fixations, saccades, and blinks. It saves the results as CSV files in the specified output directory.
+    fixations, saccades, and blinks. It saves the results as CSV files in the "classification_results" directory.
 
     Example:
     --------
-    >>> Tobii_Classifier("data/raw.csv", output_path="results/")
+    >>> Tobii_Classifier("data/raw.csv")
 
     Blink Parameters (Nystrom et al., 2024):
     -----------
@@ -47,7 +46,6 @@ class Tobii_Classifier:
     def __init__(
         self,
         file_path: str,
-        output_path: str,
         blink_detection: bool = True,
         Fs: int = 60,
         gap_dur: int = 40,
@@ -59,7 +57,6 @@ class Tobii_Classifier:
         min_blink_dur: int = 30,
         noise_reduction: str | bool = 'median',
         noise_reduction_window: int = 3,
-        velocity_window: int | bool = False,
         velocity_threshold: int = 30,
         label_counter: dict = {'id': 0},
         merge_fixations: bool = False,
@@ -68,7 +65,7 @@ class Tobii_Classifier:
         min_fixation_duration: int = 60,
     ):
         self.file_path = file_path
-        self.output_path = output_path
+        self.output_path = 'classification_results'
 
         # Blink detection settings
         self.blink_settings = Blink_Settings(
@@ -126,12 +123,3 @@ class Tobii_Classifier:
         df_fixation.to_csv(full_path_fix, index=False)
 
         print(f"Files saved to:\n -> {full_path_full}\n -> {full_path_fix}")
-
-if __name__ == '__main__':
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
-    discard_fix = sys.argv[3].lower() == 'true'
-    merge = sys.argv[3].lower() == 'true'
-    Tobii_Classifier(file_path = input_file,
-                     output_path = output_file,
-                     discard_short_fixation=discard_fix,merge_fixations=merge)

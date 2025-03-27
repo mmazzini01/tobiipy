@@ -48,7 +48,6 @@ class Fixation_Settings:
     '''
     noise_reduction: str | None | bool = field(default='median')
     noise_reduction_window: int = field(default=3)
-    velocity_window: int | None | bool = field(default=None)
     velocity_threshold: int = field(default=30)
     label_counter: dict[str, int] = field(default_factory=lambda: {'id': 0})
     merge_fixations: bool | None = field(default=None)
