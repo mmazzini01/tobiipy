@@ -84,7 +84,6 @@ class Tobii_Classifier:
         self.fix_settings = Fixation_Settings(
             noise_reduction=noise_reduction,
             noise_reduction_window=noise_reduction_window,
-            velocity_window=velocity_window,
             velocity_threshold=velocity_threshold,
             label_counter=label_counter,
             merge_fixations=merge_fixations,
