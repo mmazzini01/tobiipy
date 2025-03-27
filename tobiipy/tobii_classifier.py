@@ -1,7 +1,7 @@
 import os
-import preprocessing
-from settings import Fixation_Settings, Blink_Settings
-from fixation_detection import FixationDetector
+import tobiipy.preprocessing as preprocessing
+from tobiipy.settings import Fixation_Settings, Blink_Settings
+from tobiipy.fixation_detection import FixationDetector
 
 
 class Tobii_Classifier:

@@ -1,5 +1,5 @@
 import numpy as np
-import preprocessing
+import tobiipy.preprocessing as preprocessing
 import pandas as pd
 from scipy import stats
 from scipy.signal import savgol_filter, find_peaks

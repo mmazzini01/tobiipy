@@ -1,5 +1,13 @@
+import sys
+import os
 import argparse
+parent_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+print(parent_path)
+sys.path.append(parent_path)
 from tobiipy.tobii_classifier import Tobii_Classifier
+
+# Add the parent directory to sys.path to allow importing tobiipy
+
 
 def main():
     # Create argument parser

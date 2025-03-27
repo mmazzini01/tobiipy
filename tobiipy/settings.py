@@ -26,10 +26,6 @@ class Blink_Settings:
     min_blink_dur: int = field(default=30)
 
 
-
-
-from dataclasses import dataclass, field
-
 @dataclass
 class Fixation_Settings:
     '''Settings related to fixation detection.

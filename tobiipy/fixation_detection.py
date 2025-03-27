@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import blink_detection
+import tobiipy.blink_detection as blink_detection
 
 class FixationDetector():
     """Class for detecting and analyzing fixations in eye tracking data.
