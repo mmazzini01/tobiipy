@@ -1,5 +1,5 @@
 import argparse
-from tobii_classifier import Tobii_Classifier
+from tobiipy.tobii_classifier import Tobii_Classifier
 
 def main():
     # Create argument parser
