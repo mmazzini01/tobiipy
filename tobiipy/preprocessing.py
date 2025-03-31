@@ -186,11 +186,6 @@ def preprocess_data(
     df[["point_on_display_left_x", "point_on_display_left_y"]] = extract_coordinates("left_gaze_point_on_display_area",df)
     df[["point_on_display_right_x", "point_on_display_right_y"]] = extract_coordinates("right_gaze_point_on_display_area",df)
 
-    #convert center of the screen (0,0) to bottom left (0,0)
-    df[["point_on_display_left_x", "point_on_display_left_y",
-                 "point_on_display_right_x", "point_on_display_right_y"]] = (df[["point_on_display_left_x", "point_on_display_left_y",
-                 "point_on_display_right_x", "point_on_display_right_y"]] +1) / 2
-
     # Extract x,y,z coordinates for gaze points and eye positions in user coordinate system
     df[["gaze_point_left_x", "gaze_point_left_y", "gaze_point_left_z"]] = extract_coordinates("left_gaze_point_in_user_coordinate_system",df)
     df[["eye_position_left_x", "eye_position_left_y", "eye_position_left_z"]] = extract_coordinates("left_gaze_origin_in_user_coordinate_system",df)
