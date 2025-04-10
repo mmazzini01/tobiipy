@@ -60,7 +60,7 @@ class FixationDetector():
                     # Skip certain columns that shouldn't be filtered
                     if col not in ["eye_movement_type","date_time", "recording_timestamp","eye_openness_left","eye_openness_right",
                                     "left_gaze_origin_validity", "right_gaze_origin_validity", "left_pupil_diameter",
-                                    "right_pupil_diameter"]:
+                                    "right_pupil_diameter","stimulus"]:
                         if self.settings.noise_reduction == 'median':
                             value = np.median([df.at[prev, col], df.at[id, col], df.at[post, col]])
                         elif self.settings.noise_reduction == 'average':
@@ -160,7 +160,6 @@ class FixationDetector():
         df['classified_movement'] = df['classified_movement'].where(~(pd.isna(df['velocity']) & (df['classified_movement'] == 'fixation')
                                                                       ), df['classified_movement'].shift(-1))
         df.at[0,"classified_movement"] = "fixation"
-        df["diff"] = df["velocity"].diff()
         return df
 
     def blink_call(self, df):
@@ -396,7 +395,7 @@ class FixationDetector():
         # Keep only the desired columns
         columns = [
             "classified_movement", "recording_timestamp",'x', 'y', 'pupil_left', 'pupil_right',
-            "duration", "group_index"
+            "duration", "group_index","stimulus"
         ]
         fixation_df = fixation_df[columns]
 

@@ -2,7 +2,6 @@ import sys
 import os
 import argparse
 parent_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-print(parent_path)
 sys.path.append(parent_path)
 from tobiipy.tobii_classifier import Tobii_Classifier
 

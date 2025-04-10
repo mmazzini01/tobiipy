@@ -229,7 +229,8 @@ def preprocess_data(
         "right_pupil_diameter",
         "eye_openness_left",
         "eye_openness_right",
-        "eye_movement_type"
+        "eye_movement_type",
+        "stimulus"
     ]
     df_filtered = df.copy()
     df_filtered = df_filtered[columns_to_keep]
@@ -261,4 +262,5 @@ def preprocess_data(
     df_filtered["gaze_point_x"] = df_filtered.apply(lambda row: compute_average_value(row["gaze_point_left_x"], row["gaze_point_right_x"]), axis=1)
     df_filtered["gaze_point_y"] = df_filtered.apply(lambda row: compute_average_value(row["gaze_point_left_y"], row["gaze_point_right_y"]), axis=1)
     df_filtered["gaze_point_z"] = df_filtered.apply(lambda row: compute_average_value(row["gaze_point_left_z"], row["gaze_point_right_z"]), axis=1)
+    print(df_filtered.columns)
     return df_filtered
